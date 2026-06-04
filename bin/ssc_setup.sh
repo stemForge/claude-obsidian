@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
 # ssc_setup.sh — Neuen Obsidian-Vault anlegen (eigenständig, vollständig konfiguriert)
-# Usage: bash bin/ssc_setup.sh /pfad/zum/neuen/vault [--git]
-# --git: git init + erster Commit nach dem Setup
+# Usage: bash bin/ssc_setup.sh /pfad/zum/neuen/vault [--git] [--force]
+# --git:   git init + erster Commit nach dem Setup
+# --force: vorhandene Dateien überschreiben (Standard: überspringen)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FORK_ROOT="$(dirname "$SCRIPT_DIR")"
 
 if [ -z "${1:-}" ]; then
   echo "Fehler: Kein Zielverzeichnis angegeben."
-  echo "Usage: bash bin/ssc_setup.sh /pfad/zum/neuen/vault [--git]"
+  echo "Usage: bash bin/ssc_setup.sh /pfad/zum/neuen/vault [--git] [--force]"
   exit 1
 fi
 
 GIT_INIT=false
+FORCE=false
 for arg in "$@"; do
-  [ "$arg" = "--git" ] && GIT_INIT=true
+  [ "$arg" = "--git"   ] && GIT_INIT=true
+  [ "$arg" = "--force" ] && FORCE=true
 done
 
 # Pfad normalisieren (funktioniert auch wenn Verzeichnis noch nicht existiert)
@@ -23,12 +27,36 @@ VAULT="$(cd "$(dirname "$1")" 2>/dev/null && pwd)/$(basename "$1")"
 OBSIDIAN="$VAULT/.obsidian"
 
 echo "🗂  Vault wird eingerichtet: $VAULT"
+$FORCE && echo "   ⚠  --force aktiv: vorhandene Dateien werden überschrieben"
 
-# ── 1. Create directories ─────────────────────────────────────────────────────
-mkdir -p "$OBSIDIAN/snippets"
+# Hilfsfunktion: Datei kopieren, je nach --force überspringen oder überschreiben
+# Gibt 0 zurück wenn kopiert, 1 wenn übersprungen
+copy_file() {
+  local src="$1" dst="$2"
+  if [ -f "$dst" ] && ! $FORCE; then
+    echo "   ↷ $(basename "$dst") (bereits vorhanden, übersprungen)"
+    return 1
+  fi
+  cp "$src" "$dst"
+  return 0
+}
+
+# ── 1. Verzeichnisstruktur anlegen ────────────────────────────────────────────
+echo ""
+echo "📁 Verzeichnisse..."
+mkdir -p "$OBSIDIAN/plugins"
 mkdir -p "$VAULT/.raw"
 mkdir -p "$VAULT/wiki/concepts" "$VAULT/wiki/entities" "$VAULT/wiki/sources" "$VAULT/wiki/meta"
 mkdir -p "$VAULT/_templates"
+mkdir -p "$VAULT/bin"
+
+# ── 2. Snippets kopieren ──────────────────────────────────────────────────────
+echo "🎨 Snippets..."
+mkdir -p "$OBSIDIAN/snippets"
+for f in "$FORK_ROOT/.obsidian/snippets/"*.css; do
+  [ -f "$f" ] || continue
+  copy_file "$f" "$OBSIDIAN/snippets/$(basename "$f")" && echo "   ✓ $(basename "$f")" || true
+done
 
 # ── 2. Write graph.json ───────────────────────────────────────────────────────
 cat > "$OBSIDIAN/graph.json" << 'EOF'
