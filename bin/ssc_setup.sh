@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # ssc_setup.sh — Neuen Obsidian-Vault anlegen (eigenständig, vollständig konfiguriert)
-# Usage: bash bin/ssc_setup.sh /pfad/zum/neuen/vault [--git] [--force]
-# --git:   git init + erster Commit nach dem Setup
-# --force: vorhandene Dateien überschreiben (Standard: überspringen)
+# Usage: bash bin/ssc_setup.sh /pfad/zum/neuen/vault [--mode MODE] [--git] [--force]
+# --mode MODE: generic | lyt | para | zettelkasten (sonst interaktiv)
+# --git:       git init + erster Commit nach dem Setup
+# --force:     vorhandene Dateien überschreiben (Standard: überspringen)
 
 set -euo pipefail
 
@@ -17,9 +18,16 @@ fi
 
 GIT_INIT=false
 FORCE=false
-for arg in "$@"; do
-  [ "$arg" = "--git"   ] && GIT_INIT=true
-  [ "$arg" = "--force" ] && FORCE=true
+MODE_ARG=""
+args=("$@")
+i=0
+while [ $i -lt ${#args[@]} ]; do
+  case "${args[$i]}" in
+    --git)   GIT_INIT=true ;;
+    --force) FORCE=true ;;
+    --mode)  i=$((i+1)); MODE_ARG="${args[$i]:-}" ;;
+  esac
+  i=$((i+1))
 done
 
 # Pfad normalisieren (funktioniert auch wenn Verzeichnis noch nicht existiert)
@@ -45,21 +53,75 @@ copy_file() {
 echo ""
 echo "📁 Verzeichnisse..."
 mkdir -p "$OBSIDIAN/plugins"
+mkdir -p "$OBSIDIAN/snippets"
 mkdir -p "$VAULT/.raw"
-mkdir -p "$VAULT/wiki/concepts" "$VAULT/wiki/entities" "$VAULT/wiki/sources" "$VAULT/wiki/meta"
 mkdir -p "$VAULT/_templates"
 mkdir -p "$VAULT/bin"
+mkdir -p "$VAULT/scripts"
 
 # ── 2. Snippets kopieren ──────────────────────────────────────────────────────
 echo "🎨 Snippets..."
-mkdir -p "$OBSIDIAN/snippets"
 for f in "$FORK_ROOT/.obsidian/snippets/"*.css; do
   [ -f "$f" ] || continue
   copy_file "$f" "$OBSIDIAN/snippets/$(basename "$f")" && echo "   ✓ $(basename "$f")" || true
 done
 
-# ── 2. Write graph.json ───────────────────────────────────────────────────────
-cat > "$OBSIDIAN/graph.json" << 'EOF'
+# ── 3. bin/ und scripts/ kopieren ─────────────────────────────────────────────
+echo "📜 Scripts..."
+for f in "$FORK_ROOT/bin/"*.sh; do
+  [ -f "$f" ] || continue
+  copy_file "$f" "$VAULT/bin/$(basename "$f")" && echo "   ✓ bin/$(basename "$f")" || true
+done
+for f in "$FORK_ROOT/scripts/"*; do
+  [ -f "$f" ] || continue
+  copy_file "$f" "$VAULT/scripts/$(basename "$f")" && echo "   ✓ scripts/$(basename "$f")" || true
+done
+chmod +x "$VAULT/bin/"*.sh 2>/dev/null || true
+chmod +x "$VAULT/scripts/"*.sh 2>/dev/null || true
+
+# ── 4. Methodology mode wählen + wiki-Ordner anlegen ──────────────────────────
+echo ""
+echo "🗂  Methodology mode..."
+if [ -n "$MODE_ARG" ]; then
+  bash "$VAULT/bin/setup-mode.sh" --mode "$MODE_ARG"
+else
+  bash "$VAULT/bin/setup-mode.sh"
+fi
+MODE=$(python3 "$VAULT/scripts/wiki-mode.py" get 2>/dev/null || echo "generic")
+
+# ── 5. graph.json schreiben (mode-abhängige colorGroups) ──────────────────────
+echo ""
+echo "📊 graph.json ($MODE)..."
+case "$MODE" in
+  para)
+    COLOR_GROUPS='[
+    { "query": "path:wiki/projects",  "color": { "a": 1, "rgb": 12945088 } },
+    { "query": "path:wiki/areas",     "color": { "a": 1, "rgb": 5227007  } },
+    { "query": "path:wiki/resources", "color": { "a": 1, "rgb": 6986069  } },
+    { "query": "path:wiki/archives",  "color": { "a": 1, "rgb": 8947848  } },
+    { "query": "path:wiki",           "color": { "a": 1, "rgb": 5676246  } }
+  ]' ;;
+  lyt)
+    COLOR_GROUPS='[
+    { "query": "path:wiki/mocs",      "color": { "a": 1, "rgb": 12945088 } },
+    { "query": "path:wiki/notes",     "color": { "a": 1, "rgb": 5227007  } },
+    { "query": "path:wiki",           "color": { "a": 1, "rgb": 5676246  } }
+  ]' ;;
+  zettelkasten)
+    COLOR_GROUPS='[
+    { "query": "path:wiki",           "color": { "a": 1, "rgb": 5676246  } }
+  ]' ;;
+  *)  # generic
+    COLOR_GROUPS='[
+    { "query": "path:wiki/entities",  "color": { "a": 1, "rgb": 12945088 } },
+    { "query": "path:wiki/concepts",  "color": { "a": 1, "rgb": 5227007  } },
+    { "query": "path:wiki/sources",   "color": { "a": 1, "rgb": 6986069  } },
+    { "query": "path:wiki/meta",      "color": { "a": 1, "rgb": 5676246  } },
+    { "query": "path:wiki",           "color": { "a": 1, "rgb": 5676246  } }
+  ]' ;;
+esac
+
+cat > "$OBSIDIAN/graph.json" << EOF
 {
   "collapse-filter": false,
   "search": "path:wiki",
@@ -68,13 +130,7 @@ cat > "$OBSIDIAN/graph.json" << 'EOF'
   "hideUnresolved": true,
   "showOrphans": false,
   "collapse-color-groups": false,
-  "colorGroups": [
-    { "query": "path:wiki/entities",    "color": { "a": 1, "rgb": 12945088 } },
-    { "query": "path:wiki/concepts",    "color": { "a": 1, "rgb": 5227007  } },
-    { "query": "path:wiki/sources",     "color": { "a": 1, "rgb": 6986069  } },
-    { "query": "path:wiki/meta",        "color": { "a": 1, "rgb": 5676246  } },
-    { "query": "path:wiki",             "color": { "a": 1, "rgb": 5676246  } }
-  ],
+  "colorGroups": $COLOR_GROUPS,
   "showArrow": true,
   "textFadeMultiplier": -1,
   "nodeSizeMultiplier": 1.8,
