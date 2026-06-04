@@ -49,6 +49,20 @@ copy_file() {
   return 0
 }
 
+# Hilfsfunktion: Config-Datei aus String schreiben, --force berücksichtigen
+# Usage: write_config "$OBSIDIAN/app.json" <<'EOF' ... EOF
+write_config() {
+  local dst="$1"
+  local content
+  content=$(cat)
+  if [ -f "$dst" ] && ! $FORCE; then
+    echo "   ↷ $(basename "$dst") (bereits vorhanden, übersprungen)"
+    return
+  fi
+  printf '%s\n' "$content" > "$dst"
+  echo "   ✓ $(basename "$dst")"
+}
+
 # ── 1. Verzeichnisstruktur anlegen ────────────────────────────────────────────
 echo ""
 echo "📁 Verzeichnisse..."
@@ -121,7 +135,7 @@ case "$MODE" in
   ]' ;;
 esac
 
-cat > "$OBSIDIAN/graph.json" << EOF
+write_config "$OBSIDIAN/graph.json" << EOF
 {
   "collapse-filter": false,
   "search": "path:wiki",
@@ -143,8 +157,10 @@ cat > "$OBSIDIAN/graph.json" << EOF
 }
 EOF
 
-# ── 3. Write app.json (excluded files) ───────────────────────────────────────
-cat > "$OBSIDIAN/app.json" << 'EOF'
+# ── 6. app.json (excluded files) ─────────────────────────────────────────────
+echo ""
+echo "⚙️  Obsidian-Config..."
+write_config "$OBSIDIAN/app.json" << 'EOF'
 {
   "userIgnoreFilters": [
     "agents/",
@@ -160,8 +176,8 @@ cat > "$OBSIDIAN/app.json" << 'EOF'
 }
 EOF
 
-# ── 4. Write appearance.json (enable CSS snippets) ───────────────────────────
-cat > "$OBSIDIAN/appearance.json" << 'EOF'
+# ── 7. appearance.json (CSS snippets aktivieren) ──────────────────────────────
+write_config "$OBSIDIAN/appearance.json" << 'EOF'
 {
   "enabledCssSnippets": [
     "vault-colors",
