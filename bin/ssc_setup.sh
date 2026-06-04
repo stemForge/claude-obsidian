@@ -187,17 +187,130 @@ write_config "$OBSIDIAN/appearance.json" << 'EOF'
 }
 EOF
 
-# ── 5. Download Excalidraw main.js (8MB, not in git) ─────────────────────────
-EXCALIDRAW="$OBSIDIAN/plugins/obsidian-excalidraw-plugin"
-if [ -f "$EXCALIDRAW/manifest.json" ] && [ ! -f "$EXCALIDRAW/main.js" ]; then
-  echo "Downloading Excalidraw main.js (~8MB)..."
-  curl -sS -L \
-    "https://github.com/zsviczian/obsidian-excalidraw-plugin/releases/latest/download/main.js" \
-    -o "$EXCALIDRAW/main.js"
-  echo "✓ Excalidraw main.js downloaded"
-elif [ -f "$EXCALIDRAW/main.js" ]; then
-  echo "✓ Excalidraw main.js already present"
-fi
+# ── 8. Plugins ────────────────────────────────────────────────────────────────
+echo ""
+echo "🔌 Plugins..."
+
+# Obsidian-Version ermitteln (für Kompatibilitätsprüfung)
+get_obsidian_version() {
+  local plist="/Applications/Obsidian.app/Contents/Info.plist"
+  [ -f "$plist" ] && /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$plist" 2>/dev/null || echo ""
+}
+
+version_gte() {
+  [ "$(printf '%s\n%s' "$1" "$2" | sort -V | head -1)" = "$2" ]
+}
+
+# Letzten kompatiblen Release-Tag über GitHub API suchen
+find_compatible_tag() {
+  local repo="$1" obsidian_version="$2"
+  python3 - <<PYEOF
+import urllib.request, json, sys
+repo = "$repo"
+obsidian = "$obsidian_version"
+def ver_tuple(v):
+    try: return tuple(int(x) for x in str(v).split('.'))
+    except: return (0, 0, 0)
+obsidian_t = ver_tuple(obsidian)
+url = "https://api.github.com/repos/{}/releases?per_page=20".format(repo)
+try:
+    req = urllib.request.Request(url, headers={"User-Agent": "ssc-vault-setup"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        releases = json.loads(r.read())
+except Exception: sys.exit(0)
+for release in releases:
+    tag = release.get("tag_name", "")
+    for asset in release.get("assets", []):
+        if asset["name"] == "manifest.json":
+            try:
+                req2 = urllib.request.Request(asset["browser_download_url"], headers={"User-Agent": "ssc-vault-setup"})
+                with urllib.request.urlopen(req2, timeout=10) as r:
+                    manifest = json.loads(r.read())
+                if obsidian_t >= ver_tuple(manifest.get("minAppVersion", "0.0.0")):
+                    print(tag); sys.exit(0)
+            except Exception: pass
+PYEOF
+}
+
+# Plugin aus Fork kopieren (manifest.json + main.js + styles.css, ohne data.json)
+copy_plugin() {
+  local id="$1"
+  local src="$FORK_ROOT/.obsidian/plugins/$id"
+  local dst="$OBSIDIAN/plugins/$id"
+  if [ -f "$dst/main.js" ] && ! $FORCE; then
+    echo "   ↷ $id (bereits vorhanden, übersprungen)"
+    return
+  fi
+  mkdir -p "$dst"
+  for f in main.js manifest.json styles.css; do
+    [ -f "$src/$f" ] && cp "$src/$f" "$dst/$f" || true
+  done
+  echo "   ✓ $id (aus Fork kopiert)"
+}
+
+# Plugin von GitHub herunterladen (mit Versionscheck)
+OBSIDIAN_VERSION=$(get_obsidian_version)
+download_plugin() {
+  local id="$1" repo="$2"
+  local dst="$OBSIDIAN/plugins/$id"
+  if [ -f "$dst/main.js" ] && ! $FORCE; then
+    echo "   ↷ $id (bereits vorhanden, übersprungen)"
+    return
+  fi
+  mkdir -p "$dst"
+  local base="https://github.com/$repo/releases/latest/download"
+  if [ -n "$OBSIDIAN_VERSION" ]; then
+    local manifest_json min_ver
+    manifest_json=$(curl -fsSL "$base/manifest.json" 2>/dev/null || echo "")
+    if [ -n "$manifest_json" ]; then
+      min_ver=$(echo "$manifest_json" | python3 -c \
+        "import sys,json; print(json.load(sys.stdin).get('minAppVersion','0.0.0'))" 2>/dev/null || echo "0.0.0")
+      if ! version_gte "$OBSIDIAN_VERSION" "$min_ver"; then
+        echo "   ⚠  $id: neueste Version erfordert Obsidian >= $min_ver — suche ältere Version..."
+        local tag
+        tag=$(find_compatible_tag "$repo" "$OBSIDIAN_VERSION")
+        if [ -n "$tag" ]; then
+          echo "   → $tag wird verwendet"
+          base="https://github.com/$repo/releases/download/$tag"
+        else
+          echo "   ✗ $id: keine kompatible Version gefunden — übersprungen"
+          rm -rf "$dst"; return
+        fi
+      fi
+    fi
+  fi
+  echo "   ⬇  $id ..."
+  curl -fsSL "$base/main.js"       -o "$dst/main.js"
+  curl -fsSL "$base/manifest.json" -o "$dst/manifest.json"
+  curl -fsSL "$base/styles.css"    -o "$dst/styles.css" 2>/dev/null || rm -f "$dst/styles.css"
+  echo "   ✓ $id"
+}
+
+# Plugins aus Fork kopieren (main.js committed)
+copy_plugin "calendar"
+copy_plugin "obsidian-banners"
+copy_plugin "thino"
+
+# Plugins herunterladen
+download_plugin "obsidian-git"        "vinzent03/obsidian-git"
+download_plugin "realclaudian"        "yishentu/claudian"
+download_plugin "obsidian-excalidraw-plugin" "zsviczian/obsidian-excalidraw-plugin"
+download_plugin "dataview"            "blacksmithgu/obsidian-dataview"
+download_plugin "templater-obsidian"  "silentvoid13/Templater"
+
+# community-plugins.json schreiben (alle 8 IDs)
+write_config "$OBSIDIAN/community-plugins.json" << 'EOF'
+[
+  "dataview",
+  "templater-obsidian",
+  "obsidian-git",
+  "realclaudian",
+  "obsidian-excalidraw-plugin",
+  "obsidian-banners",
+  "calendar",
+  "thino"
+]
+EOF
 
 echo ""
 echo "✓ Setup complete."
