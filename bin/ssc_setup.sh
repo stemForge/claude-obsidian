@@ -170,8 +170,10 @@ write_config "$OBSIDIAN/app.json" << 'EOF'
 {
   "userIgnoreFilters": [
     "agents/",
+    "bin/",
     "commands/",
     "hooks/",
+    "scripts/",
     "skills/",
     "_templates/",
     "README.md",
@@ -318,7 +320,7 @@ for release in releases:
 PYEOF
 }
 
-# Plugin aus Fork kopieren (manifest.json + main.js + styles.css, ohne data.json)
+# Plugin aus Fork kopieren (manifest.json + main.js + styles.css + data.json falls vorhanden)
 copy_plugin() {
   local id="$1"
   local src="$FORK_ROOT/.obsidian/plugins/$id"
@@ -328,7 +330,7 @@ copy_plugin() {
     return
   fi
   mkdir -p "$dst"
-  for f in main.js manifest.json styles.css; do
+  for f in main.js manifest.json styles.css data.json; do
     [ -f "$src/$f" ] && cp "$src/$f" "$dst/$f" || true
   done
   echo "   ✓ $id (aus Fork kopiert)"
@@ -398,6 +400,18 @@ write_config "$OBSIDIAN/community-plugins.json" << 'EOF'
 ]
 EOF
 
+# Templater: Template-Verzeichnis setzen
+mkdir -p "$OBSIDIAN/plugins/templater-obsidian"
+write_config "$OBSIDIAN/plugins/templater-obsidian/data.json" << 'EOF'
+{
+  "templates_folder": "_templates",
+  "trigger_on_file_creation": false,
+  "auto_jump_to_cursor": false,
+  "command_timeout": 5,
+  "enable_system_commands": false
+}
+EOF
+
 echo ""
 echo "════════════════════════════════════════"
 echo "✅  Vault eingerichtet: $VAULT"
@@ -442,3 +456,17 @@ echo "Weitere Optionen:"
 echo "  bash bin/setup-dragonscale.sh   # Adress-System + semantische Duplikaterkennung"
 echo "  bash bin/setup-mode.sh          # Methodology-Mode wechseln"
 echo "  bash bin/setup-retrieve.sh      # Hybrid-Retrieval (BM25 + Embeddings)"
+
+# ── 10. git init (optional, --git Flag) ───────────────────────────────────────
+if $GIT_INIT; then
+  echo ""
+  echo "🗃  Git..."
+  if [ -d "$VAULT/.git" ]; then
+    echo "   ↷ Git bereits initialisiert"
+  else
+    git -C "$VAULT" init -q
+    git -C "$VAULT" add .
+    git -C "$VAULT" commit -q -m "chore: initial vault setup (ssc_setup.sh)"
+    echo "   ✓ git init + initial commit"
+  fi
+fi
