@@ -93,6 +93,12 @@ done
 chmod +x "$VAULT/bin/"*.sh 2>/dev/null || true
 chmod +x "$VAULT/scripts/"*.sh 2>/dev/null || true
 
+# ── 3b. Transport erkennen ────────────────────────────────────────────────────
+mkdir -p "$VAULT/.vault-meta"
+bash "$VAULT/scripts/detect-transport.sh" --quiet 2>/dev/null \
+  && echo "   ✓ .vault-meta/transport.json" \
+  || echo "   ↷ transport.json (detect-transport fehlgeschlagen — filesystem als Fallback)"
+
 # ── 4. Methodology mode wählen + wiki-Ordner anlegen ──────────────────────────
 echo ""
 echo "🗂  Methodology mode..."
@@ -187,7 +193,87 @@ write_config "$OBSIDIAN/appearance.json" << 'EOF'
 }
 EOF
 
-# ── 8. Plugins ────────────────────────────────────────────────────────────────
+# ── 8. .gitignore ─────────────────────────────────────────────────────────────
+write_config "$VAULT/.gitignore" << 'EOF'
+# Obsidian runtime state
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/workspace-visual.json
+.obsidian/plugins/*/data.json
+!.obsidian/plugins/calendar/data.json
+!.obsidian/plugins/thino/data.json
+.obsidian/plugins/obsidian-excalidraw-plugin/main.js
+
+# Large assets (uncomment to exclude images from git)
+# _attachments/images/
+.smart-connections/
+.obsidian-git-data
+.trash/
+
+# System
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node
+node_modules/
+
+# Secrets
+.env
+.env.local
+*.local.md
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+credentials*
+secrets.y*ml
+auth.json
+
+# Obsidian auto-created files
+WIKI*.md
+PROMPT.md
+Welcome.md
+*.tmp.*
+????-??-??.md
+
+# Video and large media
+*.mkv
+*.mp4
+*.mov
+*.avi
+
+# Transcripts (copyright)
+*Transcript*.txt
+
+# DragonScale runtime (lockfiles, caches — regenerable)
+.vault-meta/.address.lock
+.vault-meta/.tiling.lock
+.vault-meta/tiling-cache.json
+.vault-meta/tiling-cache.*.tmp
+.vault-meta/.wiki-lock.meta
+.vault-meta/.bm25.lock
+.vault-meta/.embed-cache.lock
+.vault-meta/locks/*
+!.vault-meta/locks/.gitkeep
+.vault-meta/chunks/
+.vault-meta/bm25/
+.vault-meta/embed-cache.json
+.vault-meta/embed-cache.*.tmp
+.vault-meta/transport.json
+.vault-meta/transport.*.tmp
+.vault-meta/hook.log
+.vault-meta/mode.json
+.vault-meta/mode.*.tmp
+EOF
+
+# ── 9. Plugins ────────────────────────────────────────────────────────────────
 echo ""
 echo "🔌 Plugins..."
 
